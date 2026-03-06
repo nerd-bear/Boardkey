@@ -1,4 +1,4 @@
-<div class="bg">
+<div class="bg-linear-to-t from-[#D84646] to-[#E07B45] fixed inset-0 flex p-2 justify-center bg">
 	<div class="top-0 text-center">
 		<img class="mx-auto h-[25%] w-[25%]" src="/sadface.png" alt="" />
 		<h1 class="text-2xl font-bold text-white [text-shadow:-1px_2px_6px_#000000]">
@@ -12,7 +12,7 @@
 </div>
 
 <style>
-	.bg {
+	/* .bg {
 		position: fixed;
 		inset: 0;
 		background-image: linear-gradient(
@@ -30,6 +30,15 @@
 			#afeb4f,
 			#7afb5f
 		);
+		display: flex;
+		align-items: flex-start;
+		padding-top: 20vh;
+		justify-content: center;
+	} */
+	
+	.bg {
+		position: fixed;
+		inset: 0;
 		display: flex;
 		align-items: flex-start;
 		padding-top: 20vh;

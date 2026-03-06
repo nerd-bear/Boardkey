@@ -168,7 +168,7 @@
 	<div class="mx-auto mb-6 max-w-4xl">
 		<div
 			bind:this={fieldEl}
-			class="relative flex items-center rounded-[14px] border border-white/10 bg-[rgba(20,20,20,0.15)] px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_26px_rgba(0,0,0,0.35)] backdrop-blur-[10px]"
+			class="relative flex items-center rounded-lg border border-white/10 bg-[rgba(20,20,20,0.15)] px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_26px_rgba(0,0,0,0.35)] backdrop-blur-[10px]"
 		>
 			<div class="relative w-full overflow-hidden">
 				<span
