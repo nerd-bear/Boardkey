@@ -1,16 +1,27 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Button from '$lib/components/Button.svelte';
+	import { AmbientSoundPlayer, type AmbientSoundConfig } from '$lib/audio/ambientSoundPlayer';
 
 	let showSettings = false;
+	let showInfo = false;
 	let loading = false;
 	let music = false;
 	let musicVolume = 50;
 	let sfx = true;
 
+	let player: AmbientSoundPlayer | null = null;
+	let ambientLoaded = false;
+	let ambientConfig: AmbientSoundConfig = { sounds: [] };
+
 	function start() {
-		goto('/type');
 		loading = true;
+		goto('/type');
+	}
+
+	function openLeaderboard() {
+		goto('/leaderboard');
 	}
 
 	function openSettings() {
@@ -21,13 +32,92 @@
 		showSettings = false;
 	}
 
+	function openInfo() {
+		showInfo = true;
+	}
+
+	function closeInfo() {
+		showInfo = false;
+	}
+
 	function onBackdropClick(e: MouseEvent) {
-		if (e.currentTarget === e.target) closeSettings();
+		if (e.currentTarget === e.target) {
+			closeSettings();
+			closeInfo();
+		}
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (!showSettings) return;
-		if (e.key === 'Escape') closeSettings();
+		if (e.key === 'Escape') {
+			if (showSettings) closeSettings();
+			if (showInfo) closeInfo();
+		}
+	}
+
+	async function loadAmbientConfig(url: string): Promise<AmbientSoundConfig> {
+		const response = await fetch(url);
+		if (!response.ok) {
+			throw new Error(`Failed to load sound config: ${url} (${response.status})`);
+		}
+
+		return (await response.json()) as AmbientSoundConfig;
+	}
+
+	onMount(() => {
+		let destroyed = false;
+
+		player = new AmbientSoundPlayer(musicVolume / 100);
+
+		async function init() {
+			try {
+				ambientConfig = await loadAmbientConfig('/audio/ambient.json');
+
+				if (destroyed || !player) return;
+				await player.loadConfig(ambientConfig);
+
+				if (destroyed || !player) return;
+				player.setMasterVolume(musicVolume / 100);
+				ambientLoaded = true;
+			} catch (error) {
+				console.error('Failed to initialize ambient player:', error);
+			}
+		}
+
+		init();
+
+		return () => {
+			destroyed = true;
+			player?.destroy();
+		};
+	});
+
+	async function enableMusic() {
+		if (!player || !ambientLoaded) return;
+
+		player.setMasterVolume(musicVolume / 100);
+		await player.start();
+	}
+
+	function disableMusic() {
+		player?.stop();
+	}
+
+	async function handleMusicToggle() {
+		if (music) {
+			await enableMusic();
+		} else {
+			disableMusic();
+		}
+	}
+
+	function handleMusicVolumeInput(event: Event) {
+		const target = event.currentTarget as HTMLInputElement;
+		musicVolume = Number(target.value);
+		player?.setMasterVolume(musicVolume / 100);
+	}
+
+	$: if (player && ambientLoaded) {
+		player.setMasterVolume(musicVolume / 100);
 	}
 </script>
 
@@ -40,21 +130,18 @@
 </svelte:head>
 
 <div class="hubballi min-h-screen bg-linear-to-t from-[#6155F5] to-[#55D2F5] text-white">
-	<div class="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6">
-		<div class="flex items-center justify-center gap-10">
+	<div class="mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center px-6 py-10">
+		<div class="main-layout mx-auto flex w-full max-w-6xl flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center">
 			<div
-				class="h-fit w-fit rounded-lg p-6 text-center
+				class="main-panel w-full max-w-4xl rounded-lg p-6 text-center
 					shadow-[inset_0_10px_25px_rgba(0,0,0,0.35)]"
 			>
-				<h1 class="text-8xl leading-none">boardkey.io</h1>
+				<h1 class="text-8xl leading-none max-sm:text-6xl">boardkey.io</h1>
 
 				<div class="mt-10 w-full">
 					<div
-						class="grid w-full grid-cols-[1fr_auto_1fr] items-start
-							gap-4
-							max-sm:grid-cols-[1fr]
-							max-sm:justify-items-center
-							sm:gap-6"
+						class="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-4
+							max-sm:grid-cols-1 max-sm:justify-items-center sm:gap-6"
 					>
 						<div class="flex justify-end max-sm:justify-center">
 							<Button contentString="Settings" onClickFunc={openSettings} />
@@ -66,200 +153,303 @@
 
 						<div class="flex justify-start max-sm:justify-center">
 							<label class="group relative inline-flex cursor-pointer flex-col items-center">
-								<input class="peer sr-only" type="checkbox" bind:checked={music} />
+								<input
+									class="peer sr-only"
+									type="checkbox"
+									bind:checked={music}
+									on:change={handleMusicToggle}
+									disabled={!ambientLoaded}
+								/>
 
 								<div
 									class="relative h-14 w-28 rounded-lg border border-white/30 bg-white/20
-										bg-linear-to-b
-										from-emerald-500/20 to-emerald-400/10
+										bg-linear-to-b from-bg-white/20 to-bg-white/20
 										shadow-[0_6px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.1)]
 										transition-all duration-300 ease-out
-
 										peer-checked:from-emerald-400/40
 										peer-checked:to-emerald-300/30
-
+										peer-disabled:cursor-not-allowed
+										peer-disabled:opacity-50
 										before:absolute before:top-1.5 before:left-1.5 before:h-11 before:w-11 before:rounded-lg
-										before:bg-linear-to-b before:from-sky-200 before:to-sky-500
+										before:bg-linear-to-b before:from-sky-300 before:to-sky-500
 										before:transition-all before:duration-300
-
 										peer-checked:before:translate-x-14
-										peer-checked:before:from-emerald-300
-										peer-checked:before:to-emerald-500"
-								></div>
+										"
+								></div>	
 
-								<span class="mt-4 text-lg font-medium text-white transition-all duration-300"
-									>Music</span
-								>
+								<span class="mt-4 text-lg font-medium text-white transition-all duration-300">
+									Music
+								</span>
 							</label>
 						</div>
 					</div>
 				</div>
 
-				{#if showSettings}
-					<div
-						class="fixed inset-0 z-50 flex items-center justify-center p-4"
-						on:click={onBackdropClick}
-						role="presentation"
-					>
-						<div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
-
-						<div
-							class="relative w-full max-w-lg rounded-2xl border border-white/20 bg-white/10 p-6 text-left
-								shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl"
-							role="dialog"
-							aria-modal="true"
-							aria-label="Settings"
-							tabindex="0"
-						>
-							<div class="flex items-start justify-between gap-4">
-								<div>
-									<h2 class="text-3xl leading-none">Settings</h2>
-									<p class="mt-2 text-white/70">
-										This is a skeleton dialog — add toggles, sliders, themes, etc.
-									</p>
-								</div>
-
-								<button
-									type="button"
-									on:click={closeSettings}
-									class="rounded-lg border border-white/20 bg-white/10 px-3 py-2
-										shadow-[0_4px_0_rgba(0,0,0,0.35)] backdrop-blur-md transition-all duration-150
-										hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-										active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
-									aria-label="Close settings"
-								>
-									✕
-								</button>
-							</div>
-
-							<div class="mt-6 space-y-4">
-								<div class="rounded-xl border border-white/15 bg-white/10 p-4">
-									<div class="flex items-center justify-between gap-4">
-										<div>
-											<div class="text-xl">Ambient Music</div>
-											<div class="text-white/70">Volume of quiet music playing</div>
-										</div>
-										<input
-											id="music-volume"
-											type="range"
-											min="0"
-											max="100"
-											step="1"
-											bind:value={musicVolume}
-											disabled={!music}
-											class="slider w-40 disabled:cursor-not-allowed disabled:opacity-50"
-										/>
-										<span class="w-10 text-right text-white/80">{musicVolume}%</span>
-									</div>
-								</div>
-
-								<div class="rounded-xl border border-white/15 bg-white/10 p-4">
-									<div class="flex items-center justify-between gap-4">
-										<div>
-											<div class="text-xl">Sfx</div>
-											<div class="text-white/70">Enable/Disable Sound Effects</div>
-										</div>
-
-										<label class="relative inline-flex cursor-pointer items-center">
-											<input class="peer sr-only" type="checkbox" bind:checked={sfx} />
-
-											<div
-												class="h-8 w-14 rounded-lg border border-white/30 bg-white/15
-														shadow-[0_4px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.08)]
-														transition-all duration-200
-
-													   peer-checked:bg-white/20
-
-													   before:absolute before:top-1 before:left-1 before:h-6 before:w-6 before:rounded-md
-													   before:bg-linear-to-b before:from-sky-200 before:to-sky-500
-													   before:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-													   before:transition-all before:duration-200
-
-														peer-checked:before:translate-x-6
-														peer-checked:before:from-emerald-200
-														peer-checked:before:to-emerald-500"
-											></div>
-										</label>
-									</div>
-								</div>
-
-								<div class="rounded-xl border border-white/15 bg-white/10 p-4">
-									<div class="text-xl">Smth will go here... one day</div>
-									<div class="mt-2 grid grid-cols-2 gap-3">
-										<div class="h-10 rounded-lg bg-white/10"></div>
-										<div class="h-10 rounded-lg bg-white/10"></div>
-									</div>
-								</div>
-							</div>
-
-							<div class="mt-6 flex items-center justify-end gap-3">
-								<button
-									type="button"
-									on:click={closeSettings}
-									class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg
-										shadow-[0_4px_0_rgba(0,0,0,0.35)] backdrop-blur-md transition-all duration-150
-										hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-										active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
-								>
-									Close
-								</button>
-
-								<button
-									type="button"
-									class="h-12 rounded-lg border border-white/25 bg-white/20 px-5 text-lg
-										shadow-[0_4px_0_rgba(0,0,0,0.35)] backdrop-blur-md transition-all duration-150
-										hover:translate-y-px hover:bg-white/25 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-										active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
-								>
-									Save (later)
-								</button>
-							</div>
-						</div>
-					</div>
-				{/if}
+				<p class="mt-10 max-w-3xl text-center text-2xl leading-snug text-white max-sm:text-xl">
+					Play my awesome keyboard game for when you're bored! With many themes, easter eggs
+					and more!
+				</p>
 			</div>
 
-			<div
-				class="relative h-80 w-60 cursor-pointer overflow-hidden rounded-lg bg-purple-400 text-2xl font-bold"
-			>
-				<div class="peer absolute inset-0 z-10"></div>
+			<div class="extra-panel flex w-full max-w-sm shrink-0 flex-col gap-4">
+				<div class="relative h-80 w-full cursor-pointer overflow-hidden rounded-lg bg-purple-400 text-2xl font-bold">
+					<div class="peer absolute inset-0 z-10"></div>
 
-				<div
-					class="absolute -top-32 -left-16 h-44 w-32 rounded-full bg-purple-300 transition-all duration-500
-						peer-hover:-top-20 peer-hover:-left-16 peer-hover:h-[140%] peer-hover:w-[140%]"
-				></div>
+					<div
+						class="absolute -top-32 -left-16 h-44 w-32 rounded-full bg-purple-300 transition-all duration-500
+							peer-hover:-top-20 peer-hover:-left-16 peer-hover:h-[140%] peer-hover:w-[140%]"
+					></div>
 
-				<div
-					class="absolute -right-16 -bottom-32 flex h-44 w-36 items-end justify-end rounded-full bg-purple-300 text-center text-xl
-						transition-all duration-500
-						peer-hover:right-0 peer-hover:bottom-0 peer-hover:h-full peer-hover:w-full peer-hover:items-center peer-hover:justify-center peer-hover:rounded-b-none"
-				>
-					Did you know,<br />this was made<br /> by a 14 year old<br />with no AI or help?
+					<div
+						class="absolute -right-16 -bottom-32 flex h-44 w-36 items-end justify-end rounded-full bg-purple-300 text-center text-xl
+							transition-all duration-500
+							peer-hover:right-0 peer-hover:bottom-0 peer-hover:h-full peer-hover:w-full
+							peer-hover:items-center peer-hover:justify-center peer-hover:rounded-b-none"
+					>
+						Did you know,<br />this was made<br /> by a 14 year old<br />with no AI or help?
+					</div>
+
+					<div class="flex h-full w-full items-center justify-center uppercase">hover me :3</div>
 				</div>
 
-				<div class="flex h-full w-full items-center justify-center uppercase">hover me :3</div>
+				<div class="extras-card rounded-2xl p-4 text-left">
+					<div class="mb-3 text-lg uppercase tracking-wide text-white/75">Extras</div>
+
+					<button
+						type="button"
+						on:click={openLeaderboard}
+						class="leaderboard-btn group relative w-full overflow-hidden rounded-lg border border-white/25 px-5 py-4 text-left text-white"
+						aria-label="Open leaderboard"
+					>
+						<div class="absolute inset-0 bg-linear-to-b from-yellow-300/45 via-amber-300/25 to-orange-400/30"></div>
+						<div
+							class="absolute inset-0 bg-white/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+						></div>
+
+						<div class="relative z-10 flex items-center justify-between gap-3">
+							<div>
+								<div class="text-2xl leading-none">Leaderboard</div>
+								<div class="mt-2 text-sm text-white/85">see top scores and flex</div>
+							</div>
+							<svg class="h-13 fill-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><!--!Font Awesome Free v7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M345 151.2C354.2 143.9 360 132.6 360 120C360 97.9 342.1 80 320 80C297.9 80 280 97.9 280 120C280 132.6 285.9 143.9 295 151.2L226.6 258.8C216.6 274.5 195.3 278.4 180.4 267.2L120.9 222.7C125.4 216.3 128 208.4 128 200C128 177.9 110.1 160 88 160C65.9 160 48 177.9 48 200C48 221.8 65.5 239.6 87.2 240L119.8 457.5C124.5 488.8 151.4 512 183.1 512L456.9 512C488.6 512 515.5 488.8 520.2 457.5L552.8 240C574.5 239.6 592 221.8 592 200C592 177.9 574.1 160 552 160C529.9 160 512 177.9 512 200C512 208.4 514.6 216.3 519.1 222.7L459.7 267.3C444.8 278.5 423.5 274.6 413.5 258.9L345 151.2z"/></svg>
+						</div>
+					</button>
+
+					<button
+						type="button"
+						on:click={openInfo}
+						class="info-btn group relative mt-4 w-full overflow-hidden rounded-lg p-4 text-left"
+					>
+						<div
+							class="absolute inset-0 bg-linear-to-r from-white/8 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+						></div>
+
+						<div class="relative z-10">
+							<div class="text-lg text-white/85">extra info</div>
+							<div class="mt-1 text-2xl leading-none">cool game facts ✦</div>
+							<div class="mt-2 text-base text-white/75">
+								click for extra info and hidden vibes
+							</div>
+						</div>
+					</button>
+				</div>
 			</div>
 		</div>
 
-		<!-- <p class="mt-10 max-w-3xl text-center text-2xl leading-snug text-white">
-				<span class="inline-flex items-center gap-2 whitespace-nowrap">
-					Play my
-					<svg
-						class="h-6 w-6 shrink-0 fill-white"
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 640 640"
-						aria-hidden="true"
-					>
-						<path
-							d="M298.5 156.9C312.8 199.8 298.2 243.1 265.9 253.7C233.6 264.3 195.8 238.1 181.5 195.2C167.2 152.3 181.8 109 214.1 98.4C246.4 87.8 284.2 114 298.5 156.9zM164.4 262.6C183.3 295 178.7 332.7 154.2 346.7C129.7 360.7 94.5 345.8 75.7 313.4C56.9 281 61.4 243.3 85.9 229.3C110.4 215.3 145.6 230.2 164.4 262.6zM133.2 465.2C185.6 323.9 278.7 288 320 288C361.3 288 454.4 323.9 506.8 465.2C510.4 474.9 512 485.3 512 495.7L512 497.3C512 523.1 491.1 544 465.3 544C453.8 544 442.4 542.6 431.3 539.8L343.3 517.8C328 514 312 514 296.7 517.8L208.7 539.8C197.6 542.6 186.2 544 174.7 544C148.9 544 128 523.1 128 497.3L128 495.7C128 485.3 129.6 474.9 133.2 465.2zM485.8 346.7C461.3 332.7 456.7 295 475.6 262.6C494.5 230.2 529.6 215.3 554.1 229.3C578.6 243.3 583.2 281 564.3 313.4C545.4 345.8 510.3 360.7 485.8 346.7zM374.1 253.7C341.8 243.1 327.2 199.8 341.5 156.9C355.8 114 393.6 87.8 425.9 98.4C458.2 109 472.8 152.3 458.5 195.2C444.2 238.1 406.4 264.3 374.1 253.7z"
-						/>
-					</svg>
-				</span>
-				pawsome keyboard game for when you're bored! With many themes, easter eggs and more!
-			</p> -->
-		<p class="mt-10 max-w-3xl text-center text-2xl leading-snug text-white">
-			Play my awesome keyboard game for when you're bored! With many themes, easter eggs and more!
-		</p>
+		{#if showSettings}
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center p-4"
+				on:click={onBackdropClick}
+				role="presentation"
+			>
+				<div class="modal-backdrop absolute inset-0"></div>
+
+				<div
+					class="modal-card relative w-full max-w-lg rounded-2xl p-6 text-left"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Settings"
+					tabindex="0"
+				>
+					<div class="flex items-start justify-between gap-4">
+						<div>
+							<h2 class="text-3xl leading-none">Settings</h2>
+							<p class="mt-2 text-white/70">
+								This is a skeleton dialog — add toggles, sliders, themes, etc.
+							</p>
+						</div>
+
+						<button
+							type="button"
+							on:click={closeSettings}
+							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2
+								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
+								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							aria-label="Close settings"
+						>
+							✕
+						</button>
+					</div>
+
+					<div class="mt-6 space-y-4">
+						<div class="rounded-xl border border-white/15 bg-white/10 p-4">
+							<div class="flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
+								<div>
+									<div class="text-xl">Ambient Music</div>
+									<div class="text-white/70">Volume of quiet music playing</div>
+								</div>
+
+								<div class="flex w-full items-center gap-3 max-sm:flex-col max-sm:items-start">
+									<input
+										id="music-volume"
+										type="range"
+										min="0"
+										max="100"
+										step="1"
+										value={musicVolume}
+										on:input={handleMusicVolumeInput}
+										disabled={!music}
+										class="slider w-40 max-sm:w-full disabled:cursor-not-allowed disabled:opacity-50"
+									/>
+									<span class="w-10 text-right text-white/80 max-sm:w-auto">{musicVolume}%</span>
+								</div>
+							</div>
+						</div>
+
+						<div class="rounded-xl border border-white/15 bg-white/10 p-4">
+							<div class="flex items-center justify-between gap-4">
+								<div>
+									<div class="text-xl">Sfx</div>
+									<div class="text-white/70">Enable/Disable Sound Effects</div>
+								</div>
+
+								<label class="relative inline-flex cursor-pointer items-center">
+									<input class="peer sr-only" type="checkbox" bind:checked={sfx} />
+
+									<div
+										class="h-8 w-14 rounded-lg border border-white/30 bg-white/15
+											shadow-[0_4px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.08)]
+											transition-all duration-200
+											peer-checked:bg-white/20
+											before:absolute before:top-1 before:left-1 before:h-6 before:w-6 before:rounded-md
+											before:bg-linear-to-b before:from-sky-200 before:to-sky-500
+											before:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+											before:transition-all before:duration-200
+											peer-checked:before:translate-x-6
+											peer-checked:before:from-emerald-200
+											peer-checked:before:to-emerald-500"
+									></div>
+								</label>
+							</div>
+						</div>
+
+						<div class="rounded-xl border border-white/15 bg-white/10 p-4">
+							<div class="text-xl">Smth will go here... one day</div>
+							<div class="mt-2 grid grid-cols-2 gap-3">
+								<div class="h-10 rounded-lg bg-white/10"></div>
+								<div class="h-10 rounded-lg bg-white/10"></div>
+							</div>
+						</div>
+					</div>
+
+					<div class="mt-6 flex items-center justify-end gap-3">
+						<button
+							type="button"
+							on:click={closeSettings}
+							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg
+								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
+								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+						>
+							Close
+						</button>
+
+						<button
+							type="button"
+							class="h-12 rounded-lg border border-white/25 bg-white/20 px-5 text-lg
+								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
+								hover:translate-y-px hover:bg-white/25 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+						>
+							Save (later)
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if showInfo}
+			<div
+				class="fixed inset-0 z-50 flex items-center justify-center p-4"
+				on:click={onBackdropClick}
+				role="presentation"
+			>
+				<div class="modal-backdrop absolute inset-0"></div>
+
+				<div
+					class="modal-card relative w-full max-w-lg rounded-2xl p-6 text-left"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Extra info"
+					tabindex="0"
+				>
+					<div class="flex items-start justify-between gap-4">
+						<div>
+							<h2 class="text-3xl leading-none">Cool Extra Info</h2>
+							<p class="mt-2 text-white/70">A few fun little details about the game.</p>
+						</div>
+
+						<button
+							type="button"
+							on:click={closeInfo}
+							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2
+								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
+								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							aria-label="Close extra info"
+						>
+							✕
+						</button>
+					</div>
+
+					<div class="mt-6 rounded-xl border border-white/15 bg-white/10 p-5 text-xl leading-relaxed text-white/90">
+						<p>
+							boardkey.io was made to be a fun keyboard game you can jump into when you're bored
+							and just want to vibe for a bit.
+						</p>
+
+						<p class="mt-4">
+							It has themes, little surprises, and hidden easter eggs sprinkled around for people
+							who like clicking random things and exploring.
+						</p>
+
+						<p class="mt-4">
+							The goal is simple: make something playful, stylish, and satisfying enough that you
+							want to come back and beat your score.
+						</p>
+
+						<p class="mt-4 text-white/70">
+							More secrets, more themes, and more weird little details can always be added later
+							:3
+						</p>
+					</div>
+
+					<div class="mt-6 flex justify-end">
+						<button
+							type="button"
+							on:click={closeInfo}
+							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg
+								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
+								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
+								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+						>
+							Close
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -272,6 +462,117 @@
 			Segoe UI,
 			Roboto,
 			sans-serif;
+	}
+
+	.main-layout {
+		position: relative;
+		z-index: 1;
+	}
+
+	.extra-panel {
+		position: relative;
+		z-index: 2;
+	}
+
+	.extras-card {
+		background: rgba(255, 255, 255, 0.18);
+		border: 1px solid rgba(255, 255, 255, 0.28);
+		box-shadow:
+			0 12px 30px rgba(0, 0, 0, 0.22),
+			inset 0 1px 0 rgba(255, 255, 255, 0.12);
+		backdrop-filter: blur(14px);
+		-webkit-backdrop-filter: blur(14px);
+	}
+
+	.fact-card {
+		background: linear-gradient(to bottom, rgba(168, 85, 247, 0.95), rgba(147, 51, 234, 0.92));
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		box-shadow: 0 14px 32px rgba(0, 0, 0, 0.25);
+	}
+
+	.info-btn {
+		background: rgba(255, 255, 255, 0.14);
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		box-shadow:
+			0 8px 0 rgba(0, 0, 0, 0.28),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		transition:
+			transform 150ms ease,
+			box-shadow 150ms ease,
+			background 150ms ease;
+	}
+
+	.info-btn:hover {
+		transform: translateY(1px);
+		background: rgba(255, 255, 255, 0.18);
+		box-shadow:
+			0 7px 0 rgba(0, 0, 0, 0.28),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	}
+
+	.info-btn:active {
+		transform: translateY(4px);
+		box-shadow:
+			0 2px 0 rgba(0, 0, 0, 0.28),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	}
+
+	.leaderboard-btn {
+		box-shadow:
+			0 6px 0 rgba(0, 0, 0, 0.35),
+			inset 0 2px 8px rgba(255, 255, 255, 0.14),
+			0 0 24px rgba(255, 211, 92, 0.18);
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		transition:
+			transform 150ms ease,
+			box-shadow 150ms ease,
+			filter 150ms ease;
+	}
+
+	.leaderboard-btn:hover {
+		transform: translateY(1px);
+		box-shadow:
+			0 5px 0 rgba(0, 0, 0, 0.35),
+			inset 0 2px 8px rgba(255, 255, 255, 0.16),
+			0 0 28px rgba(255, 211, 92, 0.28);
+		filter: brightness(1.03);
+	}
+
+	.leaderboard-btn:active {
+		transform: translateY(4px);
+		box-shadow:
+			0 2px 0 rgba(0, 0, 0, 0.35),
+			inset 0 2px 8px rgba(255, 255, 255, 0.16);
+	}
+
+	.modal-backdrop {
+		background: rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+	}
+
+	.modal-card {
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		background: rgba(255, 255, 255, 0.14);
+		box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+		backdrop-filter: blur(18px);
+		-webkit-backdrop-filter: blur(18px);
+	}
+
+	@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+		.extras-card,
+		.info-btn,
+		.leaderboard-btn,
+		.modal-card {
+			background: rgba(255, 255, 255, 0.24);
+		}
+
+		.modal-backdrop {
+			background: rgba(0, 0, 0, 0.65);
+		}
 	}
 
 	.slider {
@@ -304,7 +605,7 @@
 		box-shadow:
 			0 4px 0 rgba(0, 0, 0, 0.35),
 			inset 0 2px 4px rgba(255, 255, 255, 0.45);
-		margin-top: -5px; 
+		margin-top: -5px;
 		transition:
 			transform 120ms ease,
 			box-shadow 120ms ease;
@@ -322,6 +623,7 @@
 		border-radius: 9999px;
 		background: linear-gradient(to right, rgba(85, 210, 245, 0.9), rgba(97, 85, 245, 0.9));
 	}
+
 	.slider::-moz-range-thumb {
 		height: 22px;
 		width: 22px;
@@ -336,4 +638,4 @@
 	.slider:disabled {
 		filter: grayscale(0.25);
 	}
-</style>
+</style>	
