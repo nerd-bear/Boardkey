@@ -121,7 +121,7 @@
 
 		<div class="mt-6 flex flex-wrap gap-3">
 			<button
-				on:click={startAmbient}
+				onclick={startAmbient}
 				disabled={!loaded || started}
 				class="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
 			>
@@ -129,7 +129,7 @@
 			</button>
 
 			<button
-				on:click={stopAmbient}
+				onclick={stopAmbient}
 				disabled={!started}
 				class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
 			>
@@ -137,7 +137,7 @@
 			</button>
 
 			<button
-				on:click={pauseAmbient}
+				onclick={pauseAmbient}
 				disabled={!started || paused}
 				class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
 			>
@@ -145,7 +145,7 @@
 			</button>
 
 			<button
-				on:click={resumeAmbient}
+				onclick={resumeAmbient}
 				disabled={!started || !paused}
 				class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
 			>
@@ -170,7 +170,7 @@
 				max="1"
 				step="0.01"
 				value={masterVolume}
-				on:input={handleMasterVolumeInput}
+				oninput={handleMasterVolumeInput}
 				class="w-full accent-white"
 			/>
 		</div>
@@ -191,7 +191,7 @@
 						</div>
 
 						<button
-							on:click={() => toggleSong(sound.id)}
+							onclick={() => toggleSong(sound.id)}
 							class={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
 								songEnabled[sound.id]
 									? 'bg-green-500/15 text-green-300 hover:bg-green-500/25'

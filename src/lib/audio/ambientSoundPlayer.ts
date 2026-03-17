@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { getAudioContext, getMasterGain } from './audioContext.ts';
 
 export interface AmbientSoundEntry {
     id: string;
@@ -28,8 +29,13 @@ type LoadedSound = {
 };
 
 export class AmbientSoundPlayer {
-    private audioContext: AudioContext | null = null;
-    private masterGain: GainNode | null = null;
+    private get audioContext(): AudioContext | null {
+        return getAudioContext();
+    }
+
+    private get masterGain(): GainNode | null {
+        return getMasterGain();
+    }
 
     private config: AmbientSoundConfig | null = null;
     private loadedSounds = new Map<string, LoadedSound>();
@@ -55,9 +61,7 @@ export class AmbientSoundPlayer {
     async loadConfig(config: AmbientSoundConfig): Promise<void> {
         this.assertBrowser();
         this.ensureNotDestroyed();
-
         this.config = this.normalizeConfig(config);
-        await this.ensureAudioContext();
     }
 
     async loadConfigFromUrl(url: string): Promise<void> {
@@ -81,7 +85,6 @@ export class AmbientSoundPlayer {
             throw new Error('No config loaded. Call loadConfig() or loadConfigFromUrl() first.');
         }
 
-        await this.ensureAudioContext();
         await this.resume();
 
         if (this.started) return;
@@ -118,7 +121,6 @@ export class AmbientSoundPlayer {
 
     setMasterVolume(volume: number): void {
         this.masterVolume = this.clamp(volume, 0, 1);
-
         if (this.masterGain) {
             this.masterGain.gain.value = this.masterVolume;
         }
@@ -142,20 +144,8 @@ export class AmbientSoundPlayer {
 
     async destroy(): Promise<void> {
         if (this.destroyed) return;
-
         this.stop();
         this.destroyed = true;
-
-        if (this.audioContext) {
-            try {
-                await this.audioContext.close();
-            } catch {
-                // ignore
-            }
-        }
-
-        this.audioContext = null;
-        this.masterGain = null;
         this.loadedSounds.clear();
         this.loadingSounds.clear();
     }
@@ -177,24 +167,6 @@ export class AmbientSoundPlayer {
 
         this.loadingSounds.set(entry.id, promise);
         return promise;
-    }
-
-    private async ensureAudioContext(): Promise<void> {
-        if (!browser) return;
-        if (this.audioContext) return;
-
-        const Ctx =
-            window.AudioContext ||
-            (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-
-        if (!Ctx) {
-            throw new Error('Web Audio API is not supported in this browser.');
-        }
-
-        this.audioContext = new Ctx();
-        this.masterGain = this.audioContext.createGain();
-        this.masterGain.gain.value = this.masterVolume;
-        this.masterGain.connect(this.audioContext.destination);
     }
 
     private async fetchAndDecode(src: string): Promise<AudioBuffer> {
@@ -304,8 +276,6 @@ export class AmbientSoundPlayer {
         this.currentGain = gain;
         this.currentSoundId = picked.id;
 
-        const offset = 0;
-
         source.onended = () => {
             this.currentSource = null;
             this.currentGain = null;
@@ -315,7 +285,7 @@ export class AmbientSoundPlayer {
         };
 
         try {
-            source.start(0, offset);
+            source.start(0, 0);
         } catch (error) {
             console.error(`Failed to start sound "${picked.id}"`, error);
             this.currentSource = null;

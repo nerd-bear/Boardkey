@@ -5,7 +5,7 @@
 
 <button
 	type="button"
-	on:click={onClickFunc}
+	onclick={onClickFunc}
 	class="h-14 rounded-lg border border-white/30 bg-white/20 px-6 py-3 text-xl tracking-wide
 								shadow-[0_6px_0_rgba(0,0,0,0.35)] backdrop-blur-md transition-all duration-150
 								hover:translate-y-px hover:shadow-[0_4px_0_rgba(0,0,0,0.35)]

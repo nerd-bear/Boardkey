@@ -2,21 +2,16 @@ const isBrowser = typeof window !== 'undefined';
 
 let audioCtx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
-
-let clickBuffer: AudioBuffer | null = null;
 let clickGainNode: GainNode | null = null;
-
 let clickVolume = 0.9;
+
+const namedBuffers = new Map<string, AudioBuffer>();
+const namedGains = new Map<string, GainNode>();
 
 function getCtx(): AudioContext | null {
 	if (!isBrowser) return null;
-
-	const AC =
-		(window.AudioContext ??
-			(window as any).webkitAudioContext) as typeof AudioContext | undefined;
-
+	const AC = (window.AudioContext ?? (window as any).webkitAudioContext) as typeof AudioContext | undefined;
 	if (!AC) return null;
-
 	if (!audioCtx) audioCtx = new AC();
 	return audioCtx;
 }
@@ -43,10 +38,24 @@ function ensureGraph(): AudioContext | null {
 export async function loadSound(url = '/key.wav') {
 	const ctx = ensureGraph();
 	if (!ctx) return;
-
 	const res = await fetch(url);
 	const arr = await res.arrayBuffer();
 	clickBuffer = await ctx.decodeAudioData(arr);
+}
+
+export async function loadNamedSound(name: string, url: string, volume = 1.0) {
+	const ctx = ensureGraph();
+	if (!ctx) return;
+
+	const res = await fetch(url);
+	const arr = await res.arrayBuffer();
+	const buffer = await ctx.decodeAudioData(arr);
+	namedBuffers.set(name, buffer);
+
+	const gain = ctx.createGain();
+	gain.gain.value = volume;
+	gain.connect(masterGain!);
+	namedGains.set(name, gain);
 }
 
 export async function unlockAudio() {
@@ -71,3 +80,22 @@ export function playSound() {
 	src.connect(clickGainNode!);
 	src.start();
 }
+
+export function playNamedSound(name: string, pitchVariance = 0) {
+	const ctx = ensureGraph();
+	if (!ctx || ctx.state !== 'running') return;
+
+	const buffer = namedBuffers.get(name);
+	const gain = namedGains.get(name);
+	if (!buffer || !gain) return;
+
+	const src = ctx.createBufferSource();
+	src.buffer = buffer;
+	if (pitchVariance > 0) {
+		src.playbackRate.value = 1 - pitchVariance / 2 + Math.random() * pitchVariance;
+	}
+	src.connect(gain);
+	src.start();
+}
+
+let clickBuffer: AudioBuffer | null = null;
