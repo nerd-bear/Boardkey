@@ -1,5 +1,5 @@
 <script lang="ts">
-	import './layout.css';
+	import '../layout.css';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 
@@ -9,7 +9,6 @@
 		if (typeof window === 'undefined') return true;
 
 		const ua = navigator.userAgent.toLowerCase();
-
 		const isMobile = /android|iphone|ipad|ipod|blackberry|windows phone|mobile/i.test(ua);
 
 		return !isMobile;
@@ -22,4 +21,6 @@
 	});
 </script>
 
-{@render children()}
+<div class="hubballi-regular">
+	{@render children()}
+</div>

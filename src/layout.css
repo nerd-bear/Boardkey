@@ -1,0 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Hubballi&display=swap');
+
+@import "tailwindcss";
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+
+html, body {
+  font-family: "Hubballi", sans-serif;
+}

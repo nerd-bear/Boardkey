@@ -1,21 +1,28 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import Button from '$lib/components/Button.svelte';
 	import { AmbientSoundPlayer, type AmbientSoundConfig } from '$lib/audio/ambientSoundPlayer';
 
 	let showSettings = false;
 	let showInfo = false;
 	let loading = false;
+
 	let music = false;
 	let musicVolume = 50;
 	let sfx = true;
 
 	let player: AmbientSoundPlayer | null = null;
 	let ambientLoaded = false;
-	let ambientConfig: AmbientSoundConfig = { sounds: [] };
+	let ambientLoading = true;
+	let ambientError = '';
+
+	let settingsModal: HTMLElement | null = null;
+	let infoModal: HTMLElement | null = null;
+	let lastTrigger: HTMLElement | null = null;
 
 	function start() {
+		if (loading) return;
 		loading = true;
 		goto('/type');
 	}
@@ -24,38 +31,135 @@
 		goto('/leaderboard');
 	}
 
-	function openSettings() {
+	async function openSettings(event?: MouseEvent) {
+		lastTrigger =
+			(event?.currentTarget as HTMLElement) ?? (document.activeElement as HTMLElement | null);
 		showSettings = true;
+		await tick();
+		settingsModal?.focus();
 	}
 
 	function closeSettings() {
 		showSettings = false;
+		lastTrigger?.focus();
 	}
 
-	function openInfo() {
+	async function openInfo(event?: MouseEvent) {
+		lastTrigger =
+			(event?.currentTarget as HTMLElement) ?? (document.activeElement as HTMLElement | null);
 		showInfo = true;
+		await tick();
+		infoModal?.focus();
 	}
 
 	function closeInfo() {
 		showInfo = false;
+		lastTrigger?.focus();
 	}
 
-	function onBackdropClick(e: MouseEvent) {
-		if (e.currentTarget === e.target) {
-			closeSettings();
-			closeInfo();
+	function isInteractiveElement(target: EventTarget | null): boolean {
+		const el = target as HTMLElement | null;
+		if (!el) return false;
+
+		const tag = el.tagName;
+		return (
+			tag === 'INPUT' ||
+			tag === 'BUTTON' ||
+			tag === 'TEXTAREA' ||
+			tag === 'SELECT' ||
+			tag === 'A' ||
+			el.isContentEditable ||
+			el.hasAttribute('tabindex') ||
+			el.getAttribute('role') === 'button' ||
+			el.getAttribute('role') === 'link' ||
+			el.closest(
+				'button, a, input, textarea, select, [contenteditable="true"], [tabindex], [role="button"], [role="link"]'
+			) !== null
+		);
+	}
+
+	function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
+		if (!container) return [];
+
+		const selectors = [
+			'a[href]',
+			'button:not([disabled])',
+			'textarea:not([disabled])',
+			'input:not([disabled])',
+			'select:not([disabled])',
+			'[tabindex]:not([tabindex="-1"])'
+		].join(',');
+
+		return Array.from(container.querySelectorAll<HTMLElement>(selectors)).filter((el) => {
+			const style = getComputedStyle(el);
+			return (
+				!el.hasAttribute('disabled') &&
+				el.getAttribute('aria-hidden') !== 'true' &&
+				style.display !== 'none' &&
+				style.visibility !== 'hidden'
+			);
+		});
+	}
+
+	function trapFocus(e: KeyboardEvent, container: HTMLElement | null) {
+		if (e.key !== 'Tab' || !container) return;
+
+		const focusable = getFocusableElements(container);
+
+		if (focusable.length === 0) {
+			e.preventDefault();
+			container.focus();
+			return;
+		}
+
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		const active = document.activeElement as HTMLElement | null;
+
+		if (e.shiftKey) {
+			if (active === first || active === container) {
+				e.preventDefault();
+				last.focus();
+			}
+		} else if (active === last) {
+			e.preventDefault();
+			first.focus();
 		}
 	}
 
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			if (showSettings) closeSettings();
-			if (showInfo) closeInfo();
+			if (showSettings) {
+				e.preventDefault();
+				closeSettings();
+				return;
+			}
+
+			if (showInfo) {
+				e.preventDefault();
+				closeInfo();
+				return;
+			}
+		}
+
+		if (showSettings) {
+			trapFocus(e, settingsModal);
+			return;
+		}
+
+		if (showInfo) {
+			trapFocus(e, infoModal);
+			return;
+		}
+
+		if (e.key === 'Enter' && !showSettings && !showInfo && !isInteractiveElement(e.target)) {
+			start();
 		}
 	}
 
 	async function loadAmbientConfig(url: string): Promise<AmbientSoundConfig> {
 		const response = await fetch(url);
+
 		if (!response.ok) {
 			throw new Error(`Failed to load sound config: ${url} (${response.status})`);
 		}
@@ -70,7 +174,10 @@
 
 		async function init() {
 			try {
-				ambientConfig = await loadAmbientConfig('/audio/ambient.json');
+				ambientLoading = true;
+				ambientError = '';
+
+				const ambientConfig = await loadAmbientConfig('/audio/ambient.json');
 
 				if (destroyed || !player) return;
 				await player.loadConfig(ambientConfig);
@@ -80,6 +187,15 @@
 				ambientLoaded = true;
 			} catch (error) {
 				console.error('Failed to initialize ambient player:', error);
+
+				if (!destroyed) {
+					ambientError = 'Music failed to load.';
+					ambientLoaded = false;
+				}
+			} finally {
+				if (!destroyed) {
+					ambientLoading = false;
+				}
 			}
 		}
 
@@ -88,11 +204,14 @@
 		return () => {
 			destroyed = true;
 			player?.destroy();
+			player = null;
 		};
 	});
 
 	async function enableMusic() {
-		if (!player || !ambientLoaded) return;
+		if (!player || !ambientLoaded) {
+			throw new Error('Ambient player is not ready');
+		}
 
 		player.setMasterVolume(musicVolume / 100);
 		await player.start();
@@ -102,11 +221,25 @@
 		player?.stop();
 	}
 
-	async function handleMusicToggle() {
-		if (music) {
-			await enableMusic();
-		} else {
+	async function handleMusicToggle(event: Event) {
+		const target = event.currentTarget as HTMLInputElement;
+		const nextChecked = target.checked;
+
+		if (!nextChecked) {
 			disableMusic();
+			music = false;
+			return;
+		}
+
+		try {
+			await enableMusic();
+			music = true;
+			ambientError = '';
+		} catch (error) {
+			console.error('Failed to start music:', error);
+			music = false;
+			target.checked = false;
+			ambientError = 'Could not start music.';
 		}
 	}
 
@@ -130,21 +263,35 @@
 </svelte:head>
 
 <div class="hubballi min-h-screen bg-linear-to-t from-[#6155F5] to-[#55D2F5] text-white">
-	<div class="mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center px-6 py-10">
-		<div class="main-layout mx-auto flex w-full max-w-6xl flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center">
+	<div
+		class="mx-auto flex min-h-screen w-full max-w-6xl flex-col items-center justify-center px-6 py-10"
+	>
+		<div
+			class="main-layout mx-auto flex w-full max-w-6xl flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center"
+		>
 			<div
-				class="main-panel w-full max-w-4xl rounded-lg p-6 text-center
-					shadow-[inset_0_10px_25px_rgba(0,0,0,0.35)]"
+				class="main-panel w-full max-w-4xl rounded-lg p-6 text-center shadow-[inset_0_10px_25px_rgba(0,0,0,0.35)]"
 			>
 				<h1 class="text-8xl leading-none max-sm:text-6xl">boardkey.io</h1>
 
 				<div class="mt-10 w-full">
 					<div
-						class="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-4
-							max-sm:grid-cols-1 max-sm:justify-items-center sm:gap-6"
+						class="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-4 max-sm:grid-cols-1 max-sm:justify-items-center sm:gap-6"
 					>
 						<div class="flex justify-end max-sm:justify-center">
-							<Button contentString="Settings" onClickFunc={openSettings} />
+							<button
+								type="button"
+								on:click={openSettings}
+								class="button-reset"
+								aria-haspopup="dialog"
+								aria-expanded={showSettings}
+								aria-controls="settings-dialog"
+							>
+								<span aria-hidden="true">
+									<Button contentString="Settings" />
+								</span>
+								<span class="sr-only">Open settings</span>
+							</button>
 						</div>
 
 						<div class="flex justify-center">
@@ -156,64 +303,61 @@
 								<input
 									class="peer sr-only"
 									type="checkbox"
-									bind:checked={music}
+									checked={music}
 									on:change={handleMusicToggle}
 									disabled={!ambientLoaded}
+									aria-label="Toggle music"
+									aria-describedby="music-status"
 								/>
 
 								<div
-									class="relative h-14 w-28 rounded-lg border border-white/30 bg-white/20
-										bg-linear-to-b from-bg-white/20 to-bg-white/20
-										shadow-[0_6px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.1)]
-										transition-all duration-300 ease-out
-										peer-checked:from-emerald-400/40
-										peer-checked:to-emerald-300/30
-										peer-disabled:cursor-not-allowed
-										peer-disabled:opacity-50
-										before:absolute before:top-1.5 before:left-1.5 before:h-11 before:w-11 before:rounded-lg
-										before:bg-linear-to-b before:from-sky-300 before:to-sky-500
-										before:transition-all before:duration-300
-										peer-checked:before:translate-x-14
-										"
-								></div>	
+									class="relative h-14 w-28 rounded-lg border border-white/30 bg-gradient-to-b from-white/20 to-white/20 shadow-[0_6px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.1)] transition-all duration-300 ease-out peer-checked:from-emerald-400/40 peer-checked:to-emerald-300/30 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 before:absolute before:top-1.5 before:left-1.5 before:h-11 before:w-11 before:rounded-lg before:bg-linear-to-b before:from-sky-300 before:to-sky-500 before:transition-all before:duration-300 peer-checked:before:translate-x-14"
+								></div>
 
 								<span class="mt-4 text-lg font-medium text-white transition-all duration-300">
 									Music
 								</span>
+
+								<div id="music-status" class="mt-1 min-h-[1.25rem] text-center text-sm text-white/80">
+									{#if ambientLoading}
+										<span class="text-white/70">Loading…</span>
+									{:else if ambientError}
+										<span>{ambientError}</span>
+									{:else if !ambientLoaded}
+										<span class="text-white/70">Unavailable</span>
+									{/if}
+								</div>
 							</label>
 						</div>
 					</div>
 				</div>
 
 				<p class="mt-10 max-w-3xl text-center text-2xl leading-snug text-white max-sm:text-xl">
-					Play my awesome keyboard game for when you're bored! With many themes, easter eggs
-					and more!
+					Play my awesome keyboard game for when you're bored! With many themes, easter eggs and
+					more!
 				</p>
 			</div>
 
 			<div class="extra-panel flex w-full max-w-sm shrink-0 flex-col gap-4">
-				<div class="relative h-80 w-full cursor-pointer overflow-hidden rounded-lg bg-purple-400 text-2xl font-bold">
-					<div class="peer absolute inset-0 z-10"></div>
-
+				<div
+					class="group relative h-80 w-full cursor-pointer overflow-hidden rounded-lg bg-purple-400 text-2xl font-bold"
+				>
 					<div
-						class="absolute -top-32 -left-16 h-44 w-32 rounded-full bg-purple-300 transition-all duration-500
-							peer-hover:-top-20 peer-hover:-left-16 peer-hover:h-[140%] peer-hover:w-[140%]"
+						class="absolute -top-32 -left-16 h-44 w-32 rounded-full bg-purple-300 transition-all duration-500 group-hover:-top-20 group-hover:-left-16 group-hover:h-[140%] group-hover:w-[140%]"
 					></div>
 
 					<div
-						class="absolute -right-16 -bottom-32 flex h-44 w-36 items-end justify-end rounded-full bg-purple-300 text-center text-xl
-							transition-all duration-500
-							peer-hover:right-0 peer-hover:bottom-0 peer-hover:h-full peer-hover:w-full
-							peer-hover:items-center peer-hover:justify-center peer-hover:rounded-b-none"
+						class="absolute -right-16 -bottom-32 flex h-44 w-36 items-end justify-end rounded-full bg-purple-300 text-center text-xl transition-all duration-500 group-hover:right-0 group-hover:bottom-0 group-hover:h-full group-hover:w-full group-hover:items-center group-hover:justify-center group-hover:rounded-b-none"
 					>
-						Did you know,<br />this was made<br /> by a 14 year old<br />with no AI or help?
+						Did you know,<br />this was made<br />
+						by a 14 year old<br />with no AI or help?
 					</div>
 
 					<div class="flex h-full w-full items-center justify-center uppercase">hover me :3</div>
 				</div>
 
 				<div class="extras-card rounded-2xl p-4 text-left">
-					<div class="mb-3 text-lg uppercase tracking-wide text-white/75">Extras</div>
+					<div class="mb-3 text-lg tracking-wide text-white/75 uppercase">Extras</div>
 
 					<button
 						type="button"
@@ -221,7 +365,9 @@
 						class="leaderboard-btn group relative w-full overflow-hidden rounded-lg border border-white/25 px-5 py-4 text-left text-white"
 						aria-label="Open leaderboard"
 					>
-						<div class="absolute inset-0 bg-linear-to-b from-yellow-300/45 via-amber-300/25 to-orange-400/30"></div>
+						<div
+							class="absolute inset-0 bg-linear-to-b from-yellow-300/45 via-amber-300/25 to-orange-400/30"
+						></div>
 						<div
 							class="absolute inset-0 bg-white/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 						></div>
@@ -231,7 +377,16 @@
 								<div class="text-2xl leading-none">Leaderboard</div>
 								<div class="mt-2 text-sm text-white/85">see top scores and flex</div>
 							</div>
-							<svg class="h-13 fill-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><!--!Font Awesome Free v7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M345 151.2C354.2 143.9 360 132.6 360 120C360 97.9 342.1 80 320 80C297.9 80 280 97.9 280 120C280 132.6 285.9 143.9 295 151.2L226.6 258.8C216.6 274.5 195.3 278.4 180.4 267.2L120.9 222.7C125.4 216.3 128 208.4 128 200C128 177.9 110.1 160 88 160C65.9 160 48 177.9 48 200C48 221.8 65.5 239.6 87.2 240L119.8 457.5C124.5 488.8 151.4 512 183.1 512L456.9 512C488.6 512 515.5 488.8 520.2 457.5L552.8 240C574.5 239.6 592 221.8 592 200C592 177.9 574.1 160 552 160C529.9 160 512 177.9 512 200C512 208.4 514.6 216.3 519.1 222.7L459.7 267.3C444.8 278.5 423.5 274.6 413.5 258.9L345 151.2z"/></svg>
+							<svg
+								class="h-12 fill-yellow-400"
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 640 640"
+								aria-hidden="true"
+							>
+								<path
+									d="M345 151.2C354.2 143.9 360 132.6 360 120C360 97.9 342.1 80 320 80C297.9 80 280 97.9 280 120C280 132.6 285.9 143.9 295 151.2L226.6 258.8C216.6 274.5 195.3 278.4 180.4 267.2L120.9 222.7C125.4 216.3 128 208.4 128 200C128 177.9 110.1 160 88 160C65.9 160 48 177.9 48 200C48 221.8 65.5 239.6 87.2 240L119.8 457.5C124.5 488.8 151.4 512 183.1 512L456.9 512C488.6 512 515.5 488.8 520.2 457.5L552.8 240C574.5 239.6 592 221.8 592 200C592 177.9 574.1 160 552 160C529.9 160 512 177.9 512 200C512 208.4 514.6 216.3 519.1 222.7L459.7 267.3C444.8 278.5 423.5 274.6 413.5 258.9L345 151.2z"
+								/>
+							</svg>
 						</div>
 					</button>
 
@@ -239,6 +394,9 @@
 						type="button"
 						on:click={openInfo}
 						class="info-btn group relative mt-4 w-full overflow-hidden rounded-lg p-4 text-left"
+						aria-haspopup="dialog"
+						aria-expanded={showInfo}
+						aria-controls="info-dialog"
 					>
 						<div
 							class="absolute inset-0 bg-linear-to-r from-white/8 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
@@ -247,9 +405,7 @@
 						<div class="relative z-10">
 							<div class="text-lg text-white/85">extra info</div>
 							<div class="mt-1 text-2xl leading-none">cool game facts ✦</div>
-							<div class="mt-2 text-base text-white/75">
-								click for extra info and hidden vibes
-							</div>
+							<div class="mt-2 text-base text-white/75">click for extra info and hidden vibes</div>
 						</div>
 					</button>
 				</div>
@@ -257,24 +413,28 @@
 		</div>
 
 		{#if showSettings}
-			<div
-				class="fixed inset-0 z-50 flex items-center justify-center p-4"
-				on:click={onBackdropClick}
-				role="presentation"
-			>
-				<div class="modal-backdrop absolute inset-0"></div>
+			<div class="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
+				<button
+					type="button"
+					class="modal-backdrop absolute inset-0 cursor-default"
+					on:click={closeSettings}
+					aria-label="Close settings dialog"
+				></button>
 
 				<div
+					id="settings-dialog"
+					bind:this={settingsModal}
 					class="modal-card relative w-full max-w-lg rounded-2xl p-6 text-left"
 					role="dialog"
 					aria-modal="true"
-					aria-label="Settings"
-					tabindex="0"
+					aria-labelledby="settings-title"
+					aria-describedby="settings-description"
+					tabindex="-1"
 				>
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<h2 class="text-3xl leading-none">Settings</h2>
-							<p class="mt-2 text-white/70">
+							<h2 id="settings-title" class="text-3xl leading-none">Settings</h2>
+							<p id="settings-description" class="mt-2 text-white/70">
 								This is a skeleton dialog — add toggles, sliders, themes, etc.
 							</p>
 						</div>
@@ -282,10 +442,7 @@
 						<button
 							type="button"
 							on:click={closeSettings}
-							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2
-								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
-								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2 shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150 hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)] active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
 							aria-label="Close settings"
 						>
 							✕
@@ -294,7 +451,9 @@
 
 					<div class="mt-6 space-y-4">
 						<div class="rounded-xl border border-white/15 bg-white/10 p-4">
-							<div class="flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
+							<div
+								class="flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start"
+							>
 								<div>
 									<div class="text-xl">Ambient Music</div>
 									<div class="text-white/70">Volume of quiet music playing</div>
@@ -310,7 +469,8 @@
 										value={musicVolume}
 										on:input={handleMusicVolumeInput}
 										disabled={!music}
-										class="slider w-40 max-sm:w-full disabled:cursor-not-allowed disabled:opacity-50"
+										class="slider w-40 disabled:cursor-not-allowed disabled:opacity-50 max-sm:w-full"
+										aria-label="Music volume"
 									/>
 									<span class="w-10 text-right text-white/80 max-sm:w-auto">{musicVolume}%</span>
 								</div>
@@ -325,20 +485,15 @@
 								</div>
 
 								<label class="relative inline-flex cursor-pointer items-center">
-									<input class="peer sr-only" type="checkbox" bind:checked={sfx} />
+									<input
+										class="peer sr-only"
+										type="checkbox"
+										bind:checked={sfx}
+										aria-label="Toggle sound effects"
+									/>
 
 									<div
-										class="h-8 w-14 rounded-lg border border-white/30 bg-white/15
-											shadow-[0_4px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.08)]
-											transition-all duration-200
-											peer-checked:bg-white/20
-											before:absolute before:top-1 before:left-1 before:h-6 before:w-6 before:rounded-md
-											before:bg-linear-to-b before:from-sky-200 before:to-sky-500
-											before:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-											before:transition-all before:duration-200
-											peer-checked:before:translate-x-6
-											peer-checked:before:from-emerald-200
-											peer-checked:before:to-emerald-500"
+										class="h-8 w-14 rounded-lg border border-white/30 bg-white/15 shadow-[0_4px_0_rgba(0,0,0,0.35),inset_0_2px_8px_rgba(255,255,255,0.08)] transition-all duration-200 peer-checked:bg-white/20 before:absolute before:top-1 before:left-1 before:h-6 before:w-6 before:rounded-md before:bg-linear-to-b before:from-sky-200 before:to-sky-500 before:shadow-[0_3px_0_rgba(0,0,0,0.35)] before:transition-all before:duration-200 peer-checked:before:translate-x-6 peer-checked:before:from-emerald-200 peer-checked:before:to-emerald-500"
 									></div>
 								</label>
 							</div>
@@ -357,20 +512,14 @@
 						<button
 							type="button"
 							on:click={closeSettings}
-							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg
-								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
-								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150 hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)] active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
 						>
 							Close
 						</button>
 
 						<button
 							type="button"
-							class="h-12 rounded-lg border border-white/25 bg-white/20 px-5 text-lg
-								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
-								hover:translate-y-px hover:bg-white/25 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							class="h-12 rounded-lg border border-white/25 bg-white/20 px-5 text-lg shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150 hover:translate-y-px hover:bg-white/25 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)] active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
 						>
 							Save (later)
 						</button>
@@ -380,43 +529,48 @@
 		{/if}
 
 		{#if showInfo}
-			<div
-				class="fixed inset-0 z-50 flex items-center justify-center p-4"
-				on:click={onBackdropClick}
-				role="presentation"
-			>
-				<div class="modal-backdrop absolute inset-0"></div>
+			<div class="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
+				<button
+					type="button"
+					class="modal-backdrop absolute inset-0 cursor-default"
+					on:click={closeInfo}
+					aria-label="Close extra info dialog"
+				></button>
 
 				<div
+					id="info-dialog"
+					bind:this={infoModal}
 					class="modal-card relative w-full max-w-lg rounded-2xl p-6 text-left"
 					role="dialog"
 					aria-modal="true"
-					aria-label="Extra info"
-					tabindex="0"
+					aria-labelledby="info-title"
+					aria-describedby="info-description"
+					tabindex="-1"
 				>
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<h2 class="text-3xl leading-none">Cool Extra Info</h2>
-							<p class="mt-2 text-white/70">A few fun little details about the game.</p>
+							<h2 id="info-title" class="text-3xl leading-none">Cool Extra Info</h2>
+							<p id="info-description" class="mt-2 text-white/70">
+								A few fun little details about the game.
+							</p>
 						</div>
 
 						<button
 							type="button"
 							on:click={closeInfo}
-							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2
-								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
-								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							class="rounded-lg border border-white/20 bg-white/10 px-3 py-2 shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150 hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)] active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
 							aria-label="Close extra info"
 						>
 							✕
 						</button>
 					</div>
 
-					<div class="mt-6 rounded-xl border border-white/15 bg-white/10 p-5 text-xl leading-relaxed text-white/90">
+					<div
+						class="mt-6 rounded-xl border border-white/15 bg-white/10 p-5 text-xl leading-relaxed text-white/90"
+					>
 						<p>
-							boardkey.io was made to be a fun keyboard game you can jump into when you're bored
-							and just want to vibe for a bit.
+							boardkey.io was made to be a fun keyboard game you can jump into when you're bored and
+							just want to vibe for a bit.
 						</p>
 
 						<p class="mt-4">
@@ -430,8 +584,7 @@
 						</p>
 
 						<p class="mt-4 text-white/70">
-							More secrets, more themes, and more weird little details can always be added later
-							:3
+							More secrets, more themes, and more weird little details can always be added later :3
 						</p>
 					</div>
 
@@ -439,10 +592,7 @@
 						<button
 							type="button"
 							on:click={closeInfo}
-							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg
-								shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150
-								hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)]
-								active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
+							class="h-12 rounded-lg border border-white/20 bg-white/10 px-5 text-lg shadow-[0_4px_0_rgba(0,0,0,0.35)] transition-all duration-150 hover:translate-y-px hover:bg-white/15 hover:shadow-[0_3px_0_rgba(0,0,0,0.35)] active:translate-y-1 active:shadow-[0_0px_0_rgba(0,0,0,0.35)]"
 						>
 							Close
 						</button>
@@ -462,6 +612,16 @@
 			Segoe UI,
 			Roboto,
 			sans-serif;
+	}
+
+	.button-reset {
+		display: inline-flex;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
 	}
 
 	.main-layout {
@@ -549,6 +709,8 @@
 	}
 
 	.modal-backdrop {
+		border: 0;
+		padding: 0;
 		background: rgba(0, 0, 0, 0.5);
 		backdrop-filter: blur(6px);
 		-webkit-backdrop-filter: blur(6px);
@@ -560,6 +722,7 @@
 		box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
 		backdrop-filter: blur(18px);
 		-webkit-backdrop-filter: blur(18px);
+		outline: none;
 	}
 
 	@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -638,4 +801,4 @@
 	.slider:disabled {
 		filter: grayscale(0.25);
 	}
-</style>	
+</style>

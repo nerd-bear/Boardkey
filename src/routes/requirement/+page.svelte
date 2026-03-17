@@ -1,47 +1,15 @@
-<div class="bg-linear-to-t from-[#D84646] to-[#E07B45] fixed inset-0 flex p-2 justify-center bg">
-	<div class="top-0 text-center">
-		<img class="mx-auto h-[25%] w-[25%]" src="/sadface.png" alt="" />
-		<h1 class="text-2xl font-bold text-white [text-shadow:-1px_2px_6px_#000000]">
-			Sorry, this is only for PC :(
-		</h1>
-		<h2 class="text-lg text-white">At least for right now</h2>
-		<p class="mt-4 px-3 font-bold text-white">
-			Hey, did you know a 14 year old made this alone with no help from others or AI?
-		</p>
-	</div>
-</div>
+<div class="fixed inset-0 bg-linear-to-t from-[#3920A9] to-[#5245e0] flex items-start justify-center pt-[20vh] p-4">
+  <div class="text-center max-w-sm">
+    
+    <h1 class="text-white text-5xl leading-10 tracking-tight">
+      This is only<br>available on<br>PC
+    </h1>
 
-<style>
-	/* .bg {
-		position: fixed;
-		inset: 0;
-		background-image: linear-gradient(
-			to right bottom,
-			#d16ba5,
-			#df7498,
-			#e87f8e,
-			#eb8d86,
-			#eb9c83,
-			#efa67a,
-			#efb173,
-			#ebbd6d,
-			#e2cb5c,
-			#cfda50,
-			#afeb4f,
-			#7afb5f
-		);
-		display: flex;
-		align-items: flex-start;
-		padding-top: 20vh;
-		justify-content: center;
-	} */
-	
-	.bg {
-		position: fixed;
-		inset: 0;
-		display: flex;
-		align-items: flex-start;
-		padding-top: 20vh;
-		justify-content: center;
-	}
-</style>
+    <img
+      src="/sadface.png"
+      class="mx-auto mt-10 h-40"
+      alt="sad face"
+    />
+
+  </div>
+</div>
